@@ -261,8 +261,14 @@ class GameEnv(object):
         if action != []:
             # 更新玩家手牌，删除对应的牌
             if self.acting_player_position == self.players[0]:
+                print("player_hand_cards是:", self.info_sets[self.acting_player_position].player_hand_cards)
                 for card in action:
-                    self.info_sets[self.acting_player_position].player_hand_cards.remove(card)
+                    have = self.info_sets[self.acting_player_position].player_hand_cards.__contains__(card)
+                    if have:
+                        self.info_sets[self.acting_player_position].player_hand_cards.remove(card)
+                    else:
+                        print("这个牌就不存在player_hand_cards中:", card)
+                        print("player_hand_cards是:", self.info_sets[self.acting_player_position].player_hand_cards)
             # 更新另外两个玩家手牌，删除相同数量的牌
             else:
                 del self.info_sets[self.acting_player_position].player_hand_cards[0:len(action)]

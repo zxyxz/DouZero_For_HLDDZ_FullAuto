@@ -2,7 +2,7 @@ import GameHelper as gh
 from GameHelper import GameHelper
 
 GameHelper = GameHelper()
-GameHelper.ScreenZoomRate = 1.25
+GameHelper.ScreenZoomRate = 1.00
 img, _ = GameHelper.Screenshot()
 img = gh.DrawRectWithText(img, (313, 747, 1144, 200), "test")
 img.save("test.png")

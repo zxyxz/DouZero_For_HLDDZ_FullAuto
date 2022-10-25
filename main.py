@@ -2,7 +2,8 @@
 # Created by: Raf
 # Modify by: Vincentzyx
 import collections
-
+import math
+import random
 
 import GameHelper as gh
 from GameHelper import GameHelper
@@ -45,7 +46,23 @@ AllCards = ['rD', 'bX', 'b2', 'r2', 'bA', 'rA', 'bK', 'rK', 'bQ', 'rQ', 'bJ', 'r
             'b9', 'r9', 'b8', 'r8', 'b7', 'r7', 'b6', 'r6', 'b5', 'r5', 'b4', 'r4', 'b3', 'r3']
 
 helper = GameHelper()
-helper.ScreenZoomRate = 1.25
+helper.ScreenZoomRate = 1.00
+log_file_name = "my_test_log.txt"
+# 输的次数
+losses = 0
+
+
+def boom_num(cards_str):
+    counter = collections.Counter(cards_str)
+    boom_nums = len([key for key in counter if counter[key] == 4])
+    if counter['D'] == 1 and counter['X'] == 1:
+        boom_nums += 1
+    return boom_nums
+
+
+def calculate_actual_win_rate(win_rate, cards_str):
+    return win_rate / (math.pow(2, boom_num(cards_str))) * 1
+
 
 def manual_landlord_requirements(cards_str):
     counter = collections.Counter(cards_str)
@@ -105,16 +122,16 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
         self.RunGame = False
         self.AutoPlay = False
         # ------ 阈值 ------
-        self.BidThresholds = [0,  # 叫地主阈值
-                              0.3,  # 抢地主阈值 (自己第一个叫地主)
-                              0]  # 抢地主阈值 (自己非第一个叫地主)
+        self.BidThresholds = [0.16,  # 叫地主阈值
+                              0.42,  # 抢地主阈值 (自己第一个叫地主)
+                              0.48]  # 抢地主阈值 (自己非第一个叫地主)
         self.JiabeiThreshold = (
-            (0.3, 0.15),  # 叫地主 超级加倍 加倍 阈值
-            (0.5, 0.15)  # 叫地主 超级加倍 加倍 阈值  (在地主是抢来的情况下)
+            (0.665, 0.48),  # 叫地主 超级加倍 加倍 阈值
+            (0.665, 0.48)  # 叫地主 超级加倍 加倍 阈值  (在地主是抢来的情况下)
         )
-        self.FarmerJiabeiThreshold = (6, 1.2)
-        self.MingpaiThreshold = 0.93
-        self.stop_when_no_chaojia = True  # 是否在没有超级加倍的时候关闭自动模式
+        self.FarmerJiabeiThreshold = (0.685, 0.51)
+        self.MingpaiThreshold = 0.935
+        self.stop_when_no_chaojia = False  # 是否在没有超级加倍的时候关闭自动模式
         self.use_manual_landlord_requirements = False  # 手动规则
         self.use_manual_mingpai_requirements = True  # Manual Mingpai
         # ------------------
@@ -380,7 +397,12 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
         move_type = get_move_type(self.real_to_env(cards))
         animation_types = {4, 5, 13, 14, 8, 9, 10, 11, 12}
         if move_type["type"] in animation_types or len(cards) >= 6:
-            self.waitUntilNoAnimation()
+            try:
+                self.waitUntilNoAnimation()
+            except Exception:
+                self.sleep(3000)
+                print("在等待动画时出现错误,直接休息3秒")
+
 
     def animation_sleep(self, cards, normalTime=0):
         if (len(cards) == 4 and len(set(cards)) == 1) or \
@@ -415,8 +437,18 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
 
     def record_cards(self):
         try:
+            print("other_hand_cards是:", self.other_hand_cards)
             for card in self.other_played_cards_env:
-                self.other_hand_cards.remove(card)
+                have = self.other_hand_cards.__contains__(card)
+                if have:
+                    self.other_hand_cards.remove(card)
+                else:
+                    if card == 17:
+                        self.other_hand_cards.remove(20)
+                        print("当card==17时移除了20")
+                    print("这个牌就不存在other_hand_cards中:", card)
+                    print("other_hand_cards是:", self.other_hand_cards)
+                    print("other_played_cards_env是:", self.other_played_cards_env)
         except ValueError as e:
             traceback.print_exc()
 
@@ -432,14 +464,18 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                 break
 
     def start(self):
+        global losses
         self.GameRecord.clear()
         self.env.card_play_init(self.card_play_data_list)
         cards_left = []
         print("开始对局")
         print("手牌:", self.user_hand_cards_real)
+        init_cards = self.user_hand_cards_real
+        log_str = "("+init_cards+")"
         first_run = True
         st = time.time()
         step_count = 0
+        last_win = 0
         while not self.env.game_over and self.RunGame:
             if self.play_order == 0:
                 self.PredictedCard.setText("...")
@@ -447,6 +483,7 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                 self.UserHandCards.setText("手牌：" + str(''.join(
                     [EnvCard2RealCard[c] for c in self.env.info_sets[self.user_position].player_hand_cards]))[::-1])
                 action_list = action_list[:8]
+                last_win = round(action_message["win_rate"], 3)
                 action_list_str = "\n".join([ainfo[0] + " " + ainfo[1] for ainfo in action_list])
                 self.PredictedCard.setText(action_message["action"] if action_message["action"] else "不出")
                 self.WinRate.setText(action_list_str)
@@ -505,7 +542,11 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                     move_type = get_move_type(self.real_to_env(cards))
                     animation_types = {4, 5, 13, 14, 8, 9, 10, 11, 12}
                     if move_type["type"] in animation_types or len(cards) >= 6:
-                        self.waitUntilNoAnimation()
+                        try:
+                            self.waitUntilNoAnimation()
+                        except Exception:
+                            self.sleep(3000)
+                            print("在等待动画时出现错误,直接休息3秒")
 
                 self.detect_start_btn()
 
@@ -539,6 +580,18 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
             step_count = (step_count + 1) % 3
             self.sleep(20)
 
+        if len(init_cards) > 16:
+            if last_win > 0:
+                log_str += "[赢了]:"+str(round(last_win, 3))
+                losses = 0
+            elif last_win < 0:
+                log_str += "[输了]:"+str(round(last_win, 3))
+                losses += 1
+            elif last_win == 0:
+                log_str += "[无效]:"+str(round(last_win, 3))
+                losses = 0
+            with open(log_file_name, "a") as f:
+                f.write(log_str + "\n")
         self.sleep(500)
         self.RunGame = False
 
@@ -763,6 +816,7 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
         self.initial_multiply = 0
         self.initial_mingpai = 0
         self.initial_bid_rate = 0
+        log_str = ""
         while self.RunGame:
             outterBreak = False
             jiaodizhu_btn = helper.LocateOnScreen("jiaodizhu_btn", region=(765, 663, 116, 50))
@@ -782,10 +836,15 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                 cards, _ = helper.GetCards(img)
                 cards_str = "".join([card[0] for card in cards])
                 win_rate = BidModel.predict_score(cards_str)
+                actual_win_rate = calculate_actual_win_rate(win_rate, cards_str)
                 farmer_score = FarmerModel.predict(cards_str, "farmer")
-                if not have_bid:
-                    with open("cardslog.txt", "a") as f:
-                        f.write(str(int(time.time())) + " " + cards_str + " " + str(round(win_rate, 2)) + "\n")
+                actual_farmer_score=calculate_actual_win_rate(farmer_score, cards_str)
+                if not log_str.__contains__(cards_str + "|"):
+                    log_str += cards_str + "|"
+                if not have_bid and len(cards_str) > 16:
+                    with open(log_file_name, "a") as f:
+                        f.write(cards_str + "|" + " 叫牌: " + str(round(actual_win_rate, 3)) + " 不叫: "
+                                + str(round(actual_farmer_score, 3))+" ")
                 print("\n叫牌预估得分: " + str(round(win_rate, 3)) + " 不叫预估得分: " + str(round(farmer_score, 3)))
                 self.BidWinrate.setText(
                     "叫牌预估得分: " + str(round(win_rate, 3)) + " 不叫预估得分: " + str(round(farmer_score, 3)))
@@ -801,21 +860,26 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
 
                 if jiaodizhu_btn is not None:
                     have_bid = True
-                    if win_rate > self.BidThresholds[0] and compare_winrate > farmer_score and landlord_requirement:
+                    if actual_win_rate + losses * 0.2 > self.BidThresholds[
+                        0] and compare_winrate+losses > farmer_score and landlord_requirement:
                         helper.ClickOnImage("jiaodizhu_btn", region=(765, 663, 116, 50), confidence=0.9)
+                        log_str += "叫地主 "
                     else:
                         helper.ClickOnImage("bujiao_btn", region=self.GeneralBtnPos)
+                        log_str += "不叫 "
                 elif qiangdizhu_btn is not None:
                     is_stolen = 1
                     if have_bid:
                         threshold_index = 1
                     else:
                         threshold_index = 2
-                    if win_rate > self.BidThresholds[
-                        threshold_index] and compare_winrate > farmer_score and landlord_requirement:
+                    if actual_win_rate + losses * 0.15 > self.BidThresholds[
+                        threshold_index] and compare_winrate+losses > farmer_score and landlord_requirement:
                         helper.ClickOnImage("qiangdizhu_btn", region=(783, 663, 116, 50), confidence=0.9)
+                        log_str += "抢地主 "
                     else:
                         helper.ClickOnImage("buqiang_btn", region=self.GeneralBtnPos)
+                        log_str += "不抢 "
                     have_bid = True
                 else:
                     pass
@@ -828,6 +892,8 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
             else:
                 llcards = self.find_three_landlord_cards(self.ThreeLandlordCardsPos)
                 print("地主牌:", llcards)
+                if len(llcards) == 3:
+                    log_str += "地主牌: "+str(llcards)+" "
                 img, _ = helper.Screenshot()
                 cards, _ = helper.GetCards(img)
                 cards_str = "".join([card[0] for card in cards])
@@ -835,8 +901,12 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                 if len(cards_str) == 20:
                     # win_rate = LandlordModel.predict(cards_str)
                     win_rate = LandlordModel.predict_by_model(cards_str, llcards)
+                    actual_win_rate = win_rate
+                    if actual_win_rate > 1:
+                        actual_win_rate = 0.99
                     self.PreWinrate.setText("局前预估得分: " + str(round(win_rate, 3)))
                     print("预估地主得分:", round(win_rate, 3))
+                    log_str += "地主得分: "+str(round(actual_win_rate,3))+" "
                 else:
                     user_position_code = self.find_landlord(self.LandlordFlagPos)
                     user_position = "up"
@@ -846,8 +916,10 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                     user_position = ['up', 'landlord', 'down'][user_position_code]
                     self.landlord_position_code = user_position_code
                     win_rate = FarmerModel.predict(cards_str, user_position)
+                    actual_win_rate = calculate_actual_win_rate(win_rate, cards_str)
                     print("预估农民得分:", round(win_rate, 3))
                     self.PreWinrate.setText("局前预估得分: " + str(round(win_rate, 3)))
+                    log_str += "农民得分: " + str(round(actual_win_rate, 3)) + " "
                 if len(cards_str) == 20:
                     JiabeiThreshold = self.JiabeiThreshold[is_stolen]
                 else:
@@ -862,20 +934,25 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
                     self.SwitchMode.setText("自动" if self.AutoPlay else "单局")
                     self.sleep(10)
                     print("检测到没有超级加倍卡，已停止自动模式")
-                if win_rate > JiabeiThreshold[0]:
-                    chaojijiabei_btn = helper.LocateOnScreen("chaojijiabei_btn", region=self.GeneralBtnPos, confidence=0.78)
+                if 1 > actual_win_rate > JiabeiThreshold[0]:
+                    chaojijiabei_btn = helper.LocateOnScreen("chaojijiabei_btn", region=self.GeneralBtnPos,
+                                                             confidence=0.78)
                     if chaojijiabei_btn is not None:
                         helper.ClickOnImage("chaojijiabei_btn", region=self.GeneralBtnPos, confidence=0.78)
                         self.initial_multiply = 4
+                        log_str += "超级加倍 "
                     else:
                         helper.ClickOnImage("jiabei_btn", region=self.GeneralBtnPos)
                         self.initial_multiply = 2
-                elif win_rate > JiabeiThreshold[1]:
+                        log_str += "加倍 "
+                elif actual_win_rate > JiabeiThreshold[1]:
                     helper.ClickOnImage("jiabei_btn", region=self.GeneralBtnPos)
                     self.initial_multiply = 2
+                    log_str += "加倍 "
                 else:
                     helper.ClickOnImage("bujiabei_btn", region=self.GeneralBtnPos)
                     self.initial_multiply = 1
+                    log_str += "不加倍 "
                 outterBreak = True
                 break
             if outterBreak:
@@ -889,17 +966,22 @@ class MyPyQT_Form(QtWidgets.QWidget, Ui_Form):
             wait_count += 1
             llcards = self.find_three_landlord_cards(self.ThreeLandlordCardsPos)
 
+        if not log_str.__contains__("地主牌") and len(llcards) == 3:
+            log_str += "地主牌: " + str(llcards) + " "
         print("等待加倍环节结束")
         if not is_taodou:
             if len(cards_str) == 20:
                 self.sleep(5000)
         else:
             self.sleep(3000)
-        if win_rate > self.MingpaiThreshold:
+        if self.MingpaiThreshold < actual_win_rate < 1:
             helper.ClickOnImage("mingpai_btn", region=self.GeneralBtnPos)
             self.initial_mingpai = 1
+            log_str += "明牌 "
         print("结束")
-
+        if len(cards_str) > 16:
+            with open(log_file_name, "a") as f:
+                f.write(log_str)
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
